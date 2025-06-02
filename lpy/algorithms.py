@@ -7,82 +7,118 @@ class STATUS():
 
 class Simplex():
   @staticmethod
-  def solve (tableau, minimize=True):
-    # Handle feasible basic solution (FBS)
-    # TODO
+  def phase1(model):
+    from .model import Variable, Expression, Model, TYPE
 
-    # tableau.base = search_fbs()
+    print ("PHASE 1 " + 80 * "=")
+    
+    # Declare your artificial problem
+    summation = Expression(None)
 
-    # Assuming x = 0 is a FBS (i.e putting the slack variable in the base)
-    tableau.base = tableau.labels[-tableau.mat.m + 1:]
+    # Checking the relation between the slack and resource vector
+    for index, constr in enumerate(model.constrs.values()):
+      slack = constr.expr.get_slack()
+      if slack == None:
+        # Equality constraint - not result of the standard form
+        # Add artificial variable if x = 0 doesn't satisfy this constraint
+        if not constr.resource.coef == 0:
+          summation += Variable (name=f"a{index}", type=TYPE.ARTIFICIAL)
+      else:
+        # Verify non-negativity satisfation
+        if slack.coef/ constr.resource.coef < 0:
+          # Non-negativity constraint broken! Add artificial variable
+          summation += Variable (name=f"a{index}", type=TYPE.ARTIFICIAL)
+
+    if len (summation.terms) == 0:
+      # return 0, dict((slack, 0) for slack in model.get_slack())
+      return 0, model.get_slack()
+    
+    # Solve the artifical problem
+    else:
+      # Create the artifical problem
+      artificial = Model()
+      for var in model.vars.values():
+        artificial.add_var(var)
+      for term in summation.terms:
+        artificial.add_var(term.var)
+
+      # The initial basic feasible solution to the artificial problem
+      bfs = list()
+      for index, constr in enumerate(model.constrs.values()):
+        cpy = constr.copy (constr)
+        artificial_term = summation[f'a{index}']
+        if not artificial_term == None:
+          cpy.expr += artificial_term
+          bfs.append (artificial_term.var)
+        else:
+          bfs.append (constr.expr.get_slack().var)
+        artificial.add_constr(cpy)
+
+      artificial.set_objective(summation)
+
+      return Simplex.phase2 (artificial, bfs)
+
+  @staticmethod
+  def phase2(model, bfs):
+    print ("PHASE 2 " + 80 * "=")
+    from .model import Tableau, TYPE
+    tableau = Tableau (model)
+    print (model)
+    tableau.update(bfs)
+    print (tableau)
 
     while True:
-      print (tableau)
-
+    #for i in range(2):
       # Default: Minimization Problem
-      # Find the most negative reduced cost
-      # best, index = tableau.get_row_min(0)
-      best, index = min(zip(tableau.mat[0, :], range(len(tableau.mat[0]))))
+      # Find the most negative reduced cost and take the value and it variable
+      best, index = min(zip(tableau.mat[0, :], range (len(tableau.mat[0]) - 1)))
 
       # Stop criteria
-      if best >= 0:
-        print (tableau.base, end=' = ')
-        print (tableau.mat[1:, tableau.mat.n - 1])
-        return tableau.base
 
-      in_var = tableau.labels[index]
+      # Avoid float point imprecision
+      if round(best, 6) >= 0:
+        fitness = tableau.mat[0, tableau.mat.n - 1]
+
+        for var, value in zip (bfs, tableau.mat[1:, tableau.mat.n - 1]):
+          var.set_value (value)
+
+        return fitness, bfs
+
+      in_var = list(tableau.labels)[index]
+
+      # in_var = tableau.labels[index]
       print (f"{in_var} enters the base; ", end='')
 
       # Find the maximum step
-      # xB = tableau.get_column(tableau.n - 1)
       xB = tableau.mat[:, tableau.mat.n - 1]
-      # d  = tableau.get_column(index)
-      d = tableau.mat[:, index]
+      d = tableau.mat[:, tableau.labels[in_var]]
 
-      max_step = float('inf')
+      min_step = float('inf')
       pivot = -1
 
-      # xBi / di
       for i in range(1, len(xB)):
-        if d[i] == 0:
+        if d[i] <= 0:
           continue # Ignore inf
         
         theta = xB[i]/ d[i]
         if theta < 0:
           continue # Ignora negative steps
       
-        if theta < max_step:
-          max_step = theta
+        if theta < min_step:
+          min_step = theta
           pivot = i
 
       # Pivoting
       if not pivot == -1:
-        out_var = tableau.base[pivot - 1]
-        print (f"{out_var} leaves the base\n")
-
-        # Update the base
-        tableau.base[pivot - 1] = in_var
-
-        # Create the Q matrix
-        key_value = d[pivot]
-        #print (f"Key value = {key_value}")
-        
-        # Implement a method to create a identity matrix
-        Q = Mat.I(tableau.mat.m)
-        Q[pivot, pivot] /= key_value
-        
-        tableau.mat = Q * tableau.mat
-
-        for i in range(len(d)):
-          if not i == pivot:
-            k = d[i]
-            Q = Mat.I(tableau.mat.m)
-            Q[i, pivot] = -k
-            #print (f"\nQ{i + 2}:\n{Q}\n")
-            tableau.mat = Q * tableau.mat
+        out_var = bfs[pivot - 1]
+        print (f"{out_var} leaves the base!")
+        bfs[pivot - 1] = in_var
+        print (f"New base: {bfs}")
+        tableau.update(bfs)
+        print (tableau)
 
       # Repeat the process
       # print (tableau)    
       else: 
-        print ("Unbounded Solution")
-        return 
+        print ("\nUnbounded Solution")
+        return 0, None

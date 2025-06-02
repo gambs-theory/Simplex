@@ -87,6 +87,7 @@ class Mat():
         # Calculate the inverse matrix: TODO
     else:
       raise Exception(f"Invalid exponent of type {type(other).__name__}! Just integers allowed!")
+  
   def __repr__ (self):
     repr = []
     for row in self.mat:

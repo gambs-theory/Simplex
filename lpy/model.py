@@ -35,11 +35,26 @@ class TYPE:
   PARTIAL_NEGATIVE = -3 # x = (x+ - x-)
   REPLACE = 4
 
-class STATUS:
+class STATUS(Enum):
   UNSOLVED = 0
   OPTIMAL = 1
   INFEASIBLE = 2
   MULTIPLE = 3
+  UNBOUNDED = 4
+
+  def __repr__ (self):
+    if self is STATUS.UNSOLVED:
+      return "\r\n* [Mia]: Model not yet optimized."
+    elif self is STATUS.OPTIMAL:
+      return "\r\n* [Mia]: Model has Optimal Solution."
+    elif self is STATUS.INFEASIBLE:
+      return "\r\n* [Mia]: Infeasible problem."
+    elif self is STATUS.UNBOUNDED:
+      return "\r\n* [Mia]: Unbouded problem."
+
+class OBJECTIVE:
+  MINIMIZE = 0
+  MAXIMIZE = 1
 
 class Variable():
   # Counting the number of instances
@@ -201,7 +216,7 @@ class Term():
     return f"{self.coef}*{self.var}"
 
 class Expression(): 
-  def __init__ (self, terms):
+  def __init__ (self, terms=None):
     self.terms = terms if terms is not None else list()
 
   def __add__ (self, other):
@@ -383,6 +398,28 @@ class Expression():
         return term
     return None
 
+  # Replace a variable for an expression
+  @classmethod
+  def replace(cls, expr, replace: dict):
+    replaced = cls()
+    for term in expr.terms:
+      if replace.get(term.var):
+        replaced += (term.coef * replace[term.var])
+      else:
+        replaced += term
+    return replaced
+
+  # values = map between the variable and it value
+  @staticmethod
+  def apply(expr, values: dict) -> float:
+    result = float (0)
+    for term in expr.terms:
+      if values.get(term.var):
+        result += term.coef * values.get(term.var)
+    return result
+
+
+##################################### CONSTRAINT ##############################################
 class Constraint():
   def __init__(self, expr, sense, resource, name=None):
     self.name = name
@@ -406,50 +443,25 @@ class Constraint():
 class Model ():
   def __init__ (self):
     self.vars = {}      # Dictionary of variables
-    self.constrs = {}   # Dictionary of Constraints
+    self.constrs = []   # List of Constraints
     self.objective = None
     self.status = STATUS.UNSOLVED
 
-    # Map between a variable and a Expression (x in R => x+ - x-)
     self.replaces = {}
     
     self.var_count = 0
     self.constr_count = 0
 
-  # Adding variable to the model
   def add_var (self, var):
     if var.name == None:
-      # Can be hacked!
-      var.name = f"x{self.var_count}"
+      var.name = f"x{Variable._counter}"
 
-    # Verify variables that already exists
     if self.vars.get(var.name) == None:
-      # Checking boundaries
-      if var.bounds[0] > -float('inf') and not var.bounds[0] == 0:
-        self.add_constr(Expression([Term(1, var)]) >= var.bounds[0])
-        var.bounds = (-float('inf'), var.bounds[1])
-      
-      #if var.bounds[1] < float('inf'):
-      if var.bounds[1] < float('inf') and not var.bounds[1] == 0:
-        # Add a constraing
-        # Make it a free variable
-        self.add_constr(Expression([Term(1, var)]) <= var.bounds[1])
-        var.bounds = (var.bounds[0], float('inf'))
-
-      # Adding variable to the dictionary
       self.vars[var.name] = var
       self.var_count += 1
 
   def add_constr(self, constr):
-    # Checking constraints with resource vector negative
-    if constr.resource.coef < 0:
-      constr = -constr
-
-    if constr.name == None:
-      constr.name = f"C{self.constr_count}"
-
-    # Adding the constraint to the dictionary
-    self.constrs[constr.name] = constr
+    self.constrs.append(constr)
     self.constr_count += 1
 
   def set_objective(self, objective):
@@ -459,57 +471,53 @@ class Model ():
       raise Exception("Invalid objective function!")
 
   # Convert this model to the standard form and return it
-  def to_standard(self):
-    std_model = Model()
+  @classmethod
+  def standardize(cls, model):
+    std_model = cls()
     
-    if not self.objective == None:
-      std_objective = Expression(None)
-      # Objective function
-      for term in self.objective.terms:
-        if term.var.bounds == (-float('inf'), float('inf')):
-          # Split it into two variables
-          positive_var = Variable(name=f"{term.var.name}+", type=TYPE.PARTIAL_POSITIVE)
-          negative_var = Variable(name=f"{term.var.name}-", type=TYPE.PARTIAL_NEGATIVE)
-
-          std_objective += term.coef * (positive_var - negative_var)
-
-          std_model.replaces[term.var] = (positive_var - negative_var)
-
-        elif term.var.bounds == (-float('inf'), 0):
-          print (f"Replacing {term.var} to it negative representation z")
-          z = Variable(name=f"-({term.var.name})", type=TYPE.REPLACE)
-          std_model.replaces[term.var] = z
-          # TODO
-        else:
-          std_objective += term
+    for var in model.vars.values():
+      if var.bounds[0] > -float('inf') and not var.bounds[0] == 0:
+        std_model.add_constr(var >= var.bounds[0])
+        var.bounds = (-float('inf'), var.bounds[1])
       
-      std_model.set_objective(std_objective)
+      if var.bounds[1] < float('inf') and not var.bounds[1] == 0:
+        std_model.add_constr(var <= var.bounds[1])
+        var.bounds = (var.bounds[0], float('inf'))
+      
+      # Check the new boundaries
+      if var.bounds == (-float('inf'), float('inf')):
+        positive_var = Variable(name=f"{var.name}+", type=TYPE.PARTIAL_POSITIVE)
+        negative_var = Variable(name=f"{var.name}-", type=TYPE.PARTIAL_NEGATIVE)
+
+        std_model.replaces[var] = (positive_var - negative_var)
+
+        std_model.add_var(positive_var)
+        std_model.add_var(negative_var)
+
+      elif var.bounds == (-float('inf'), 0):
+        z = Variable(name=f"-({var})", type=TYPE.REPLACE)
+        std_model.replaces[var] = -z
+        std_model.add_var(z)
+      else:
+        std_model.add_var(var)
+
+    if not model.objective == None:
+      std_model.set_objective(Expression.replace(model.objective, std_model.replaces))
+
+    # Adding the model constraints to the standard constraint
+    for constr in model.constrs:
+      std_model.add_constr(constr)
 
     # Standardize the constraints
-    for index, constr in enumerate(self.constrs.values()):
-      # For each term of the expression of the constraint
-      std_terms = Expression (None)
+    for constr in std_model.constrs:
+      # std_model.add_constr(Constraint(std_terms, constr.sense, constr.resource, name=constr.name))
+      constr.expr = Expression.replace(constr.expr, std_model.replaces)
+      if constr.resource.coef < 0:
+        constr.resource = -constr.resource
+        constr.sense = -constr.sense
+        constr.expr = -constr.expr
 
-      for term in constr.expr.terms:
-        if term.var.bounds == (-float('inf'), float('inf')):
-          # Split it into two variables
-          positive_var = Variable(name=f"{term.var.name}+", type=TYPE.PARTIAL_POSITIVE)
-          negative_var = Variable(name=f"{term.var.name}-", type=TYPE.PARTIAL_NEGATIVE)
-
-          std_terms += term.coef * (positive_var - negative_var)
-
-          # Add both variables in the model
-          std_model.add_var(positive_var)
-          std_model.add_var(negative_var)
-          
-        else:
-          std_terms += term
-          std_model.add_var(term.var)
-
-      std_model.add_constr(Constraint(std_terms, constr.sense, constr.resource, name=constr.name))
-
-    # For each constraing
-    for index, constr in enumerate(std_model.constrs.values()):
+    for index, constr in enumerate(std_model.constrs):
       # Create the slack variable
       slack = Variable(name=f"s{index}", type=TYPE.SLACK)
       if constr.sense == SENSE.LE:
@@ -535,48 +543,55 @@ class Model ():
     return ret
 
   # Optimize function
-  def optimize(self, minimize=True):
+  def optimize(self, objective):
     if self.objective == None:
-      return Simplex.phase1(self.to_standard())
+      return Simplex.phase1(self.standardize())
 
-    if not minimize:
-      self.objective = -self.objective
+    std_model = Model.standardize(self)
 
-    std_model = self.to_standard()
+    if objective == OBJECTIVE.MAXIMIZE:
+      std_model.objective = -std_model.objective
     
     # Phase 1: Find a feasible basic solution
     print (Simplex.phase1(std_model))
     fitness, bfs = Simplex.phase1(std_model)
 
     if not round(fitness, 6) == 0:
-      print ("Infeasible")
+      self.status = STATUS.INFEASIBLE
       return 0, None
+
     elif bfs == None:
-      print ("Ubounded")
+      self.status = STATUS.UNBOUNDED
       return 0, None
 
-
+    # Solution = List of variables
     fitness, solution = Simplex.phase2(std_model, bfs)
     summary = defaultdict(float)
-
+    
     if solution == None:
+      self.status = STATUS.UNBOUNDED
       return float('inf'), None
+
+    self.status = STATUS.OPTIMAL
 
     # For each variable in the base
     for index, var in enumerate(solution):
       if var.type == TYPE.PARTIAL_POSITIVE:
         var_label = var.name[:len(var.name) - 1]
-        summary[var_label] += var.value
+        summary[self.vars[var_label]] += var.value
       elif var.type == TYPE.PARTIAL_NEGATIVE:
         var_label = var.name[:len(var.name) - 1]
-        summary[var_label] -= var.value
+        summary[self.vars[var_label]] -= var.value
       elif var.name in self.vars.keys():
-        summary[var.name] = var.value
-    
-    return abs(fitness) if not minimize else -abs(fitness), dict (summary)
+        summary[var] = var.value
+
+    return Expression.apply(self.objective, dict(summary)), dict(summary)
 
   def __repr__(self):
-    return  (f"{self.objective}\n" if self.objective is not None else "") + "\t" + "\n\t".join([f"{name}: {constr}" for name, constr in self.constrs.items()])
+    str_obj = f"{self.objective}\n" if self.objective is not None else "\n" 
+    str_constrs = "Subject to:\n\t" + "\n\t".join([f"{constr}" for constr in self.constrs])
+    str_boundaries = "\n\t".join([f"{var}: {var.bounds}" for var in self.vars.values()])
+    return str_obj + str_constrs + "\n\t" + str_boundaries
 
 ###################################### TABLEAU ####################################
 class Tableau():
@@ -599,14 +614,14 @@ class Tableau():
         if terms.var.same(var):
           self.mat[0, index] = terms.coef
 
-      # print (self.constrs.values())
+      # print (self.constrs)
       # Constraint
-      for row, constr in enumerate(model.constrs.values()):
+      for row, constr in enumerate(model.constrs):
         for term in constr.expr.terms:
           if term.var.same(var):
             self.mat[row + 1, index] = term.coef
 
-    for row, constr in enumerate(model.constrs.values()):
+    for row, constr in enumerate(model.constrs):
       self.mat[row + 1, model.var_count] = constr.resource.coef
 
   def __repr__ (self):

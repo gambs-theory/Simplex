@@ -18,13 +18,13 @@ class Simplex():
     artificial_count = 0
 
     # Checking the relation between the slack and resource vector
-    for index, constr in enumerate(model.constrs.values()):
+    for index, constr in enumerate(model.constrs):
       slack = constr.expr.get_slack()
       if slack == None:
         # Equality constraint - not result of the standard form
         # Add artificial variable if x = 0 doesn't satisfy this constraint
         if not constr.resource.coef == 0:
-          association[constr.name] = Term(1, Variable(name=f"a{index}", type=TYPE.ARTIFICIAL))
+          association[f"{index}"] = Term(1, Variable(name=f"a{index}", type=TYPE.ARTIFICIAL))
           artificial_count += 1
       
       # Verify non-negativity satisfation
@@ -32,12 +32,12 @@ class Simplex():
         if not constr.resource.coef == 0: 
           # if slack.coef/ constr.resource.coef < 0:
           if slack.coef < 0:
-            association[constr.name] = Term(1, Variable(name=f"a{index}", type=TYPE.ARTIFICIAL))
+            association[f"{index}"] = Term(1, Variable(name=f"a{index}", type=TYPE.ARTIFICIAL))
             artificial_count += 1
           else:
-            association[constr.name] = slack
+            association[f"{index}"] = slack
         else:
-          association[constr.name] = slack
+          association[f"{index}"] = slack
 
     # if len (summation.terms) == 0:
     if artificial_count == 0:
@@ -56,9 +56,9 @@ class Simplex():
 
       # The initial basic feasible solution to the artificial problem
       bfs = list()
-      for constr in model.constrs.values():
+      for index, constr in enumerate(model.constrs):
         cpy = constr.copy (constr)
-        term = association[constr.name]
+        term = association[f"{index}"]
 
         if term.var.type == TYPE.ARTIFICIAL:
           cpy.expr += term
@@ -74,7 +74,7 @@ class Simplex():
           artificial_objective += term
 
       artificial.set_objective(artificial_objective)
-      
+
       return Simplex.phase2 (artificial, bfs)
 
   @staticmethod
@@ -130,9 +130,8 @@ class Simplex():
 
       # Pivoting
       if not pivot == -1:
-        print (f"0* = {min_step}")
         out_var = bfs[pivot - 1]
-        print (f"{out_var} leaves the base!")
+        print (f"{out_var} leaves the base!", end='; ')
         bfs[pivot - 1] = in_var
         print (f"New base: {bfs}")
         tableau.update(bfs)
@@ -140,6 +139,5 @@ class Simplex():
 
       # Repeat the process
       # print (tableau)    
-      else: 
-        print ("\nUnbounded Solution")
+      else:
         return 0, None

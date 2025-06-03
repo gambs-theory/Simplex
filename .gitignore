@@ -1,4 +1,4 @@
 # Ignoring the caches
 lpy/__pycache__
-./__pycache__
+__pycache__
 val.py

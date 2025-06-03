@@ -8,12 +8,14 @@ class STATUS():
 class Simplex():
   @staticmethod
   def phase1(model):
-    from .model import Variable, Expression, Model, TYPE
+    from .model import Variable, Expression, Model, Term, TYPE
 
     print ("PHASE 1 " + 80 * "=")
+    print (model)
     
-    # Declare your artificial problem
-    summation = Expression(None)
+    # Associate the constraint to it artificial or slack variable
+    association = dict()
+    artificial_count = 0
 
     # Checking the relation between the slack and resource vector
     for index, constr in enumerate(model.constrs.values()):
@@ -22,40 +24,57 @@ class Simplex():
         # Equality constraint - not result of the standard form
         # Add artificial variable if x = 0 doesn't satisfy this constraint
         if not constr.resource.coef == 0:
-          summation += Variable (name=f"a{index}", type=TYPE.ARTIFICIAL)
+          association[constr.name] = Term(1, Variable(name=f"a{index}", type=TYPE.ARTIFICIAL))
+          artificial_count += 1
+      
+      # Verify non-negativity satisfation
       else:
-        # Verify non-negativity satisfation
-        if slack.coef/ constr.resource.coef < 0:
-          # Non-negativity constraint broken! Add artificial variable
-          summation += Variable (name=f"a{index}", type=TYPE.ARTIFICIAL)
+        if not constr.resource.coef == 0: 
+          # if slack.coef/ constr.resource.coef < 0:
+          if slack.coef < 0:
+            association[constr.name] = Term(1, Variable(name=f"a{index}", type=TYPE.ARTIFICIAL))
+            artificial_count += 1
+          else:
+            association[constr.name] = slack
+        else:
+          association[constr.name] = slack
 
-    if len (summation.terms) == 0:
+    # if len (summation.terms) == 0:
+    if artificial_count == 0:
       # return 0, dict((slack, 0) for slack in model.get_slack())
-      return 0, model.get_slack()
+      return 0, association
     
-    # Solve the artifical problem
+    # Building the Artificial Linear Programming Problem
     else:
       # Create the artifical problem
       artificial = Model()
       for var in model.vars.values():
         artificial.add_var(var)
-      for term in summation.terms:
-        artificial.add_var(term.var)
+      for term in association.values():
+        if term.var.type == TYPE.ARTIFICIAL:
+          artificial.add_var(term.var)
 
       # The initial basic feasible solution to the artificial problem
       bfs = list()
-      for index, constr in enumerate(model.constrs.values()):
+      for constr in model.constrs.values():
         cpy = constr.copy (constr)
-        artificial_term = summation[f'a{index}']
-        if not artificial_term == None:
-          cpy.expr += artificial_term
-          bfs.append (artificial_term.var)
+        term = association[constr.name]
+
+        if term.var.type == TYPE.ARTIFICIAL:
+          cpy.expr += term
+          bfs.append(term.var)
         else:
-          bfs.append (constr.expr.get_slack().var)
+          bfs.append(term.var)
+
         artificial.add_constr(cpy)
 
-      artificial.set_objective(summation)
+      artificial_objective = Expression(None)
+      for term in association.values():
+        if term.var.type == TYPE.ARTIFICIAL:
+          artificial_objective += term
 
+      artificial.set_objective(artificial_objective)
+      
       return Simplex.phase2 (artificial, bfs)
 
   @staticmethod
@@ -65,7 +84,6 @@ class Simplex():
     tableau = Tableau (model)
     print (model)
     tableau.update(bfs)
-    print (tableau)
 
     while True:
     #for i in range(2):
@@ -86,10 +104,8 @@ class Simplex():
 
       in_var = list(tableau.labels)[index]
 
-      # in_var = tableau.labels[index]
       print (f"{in_var} enters the base; ", end='')
 
-      # Find the maximum step
       xB = tableau.mat[:, tableau.mat.n - 1]
       d = tableau.mat[:, tableau.labels[in_var]]
 
@@ -98,18 +114,23 @@ class Simplex():
 
       for i in range(1, len(xB)):
         if d[i] <= 0:
-          continue # Ignore inf
+          continue 
         
         theta = xB[i]/ d[i]
         if theta < 0:
-          continue # Ignora negative steps
-      
+          continue
+        
         if theta < min_step:
           min_step = theta
           pivot = i
 
+        # Priorize artificial variable
+        elif theta == min_step and bfs[i - 1].type == TYPE.ARTIFICIAL:
+          pivot = i
+
       # Pivoting
       if not pivot == -1:
+        print (f"0* = {min_step}")
         out_var = bfs[pivot - 1]
         print (f"{out_var} leaves the base!")
         bfs[pivot - 1] = in_var

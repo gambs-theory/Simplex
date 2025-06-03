@@ -2,12 +2,29 @@ from collections import OrderedDict
 from .data import Mat
 from .algorithms import Simplex
 from collections import defaultdict
+from enum import Enum
 
 # Enumeration of the constraint sense
-class SENSE:
+class SENSE(Enum):
   LE = 0
   GE = 1
   EQ = 2
+
+  def __repr__ (self):
+    if self is SENSE.LE:
+      return "<="
+    elif self is SENSE.EQ:
+      return "=="
+    elif self is SENSE.GE:
+      return ">="
+  
+  def __neg__ (self):
+    if self is SENSE.LE:
+      return SENSE.GE
+    elif self is SENSE.GE:
+      return SENSE.LE
+    else:
+      return self
 
 # Enumeration of the variable type
 class TYPE:
@@ -16,6 +33,7 @@ class TYPE:
   ARTIFICIAL = 2        # Aritificial variable
   PARTIAL_POSITIVE =  3 # x = (x+ - x-)
   PARTIAL_NEGATIVE = -3 # x = (x+ - x-)
+  REPLACE = 4
 
 class STATUS:
   UNSOLVED = 0
@@ -26,6 +44,7 @@ class STATUS:
 class Variable():
   # Counting the number of instances
   _counter = 0
+
   def __init__ (self, bounds=(0, float('inf')), name=None, type=TYPE.DECISION, value=0):
     self.name = name if name is not None else f"x{Variable._counter}"
     self.bounds = bounds
@@ -38,20 +57,15 @@ class Variable():
   # Use the name as hash
   def __hash__(self):
     return hash(self.name)
-
-  # Two variables are equals if, and only if, it's has the same NAME
-  def __eq__(self, other):
-    return isinstance(other, Variable) and self.name == other.name
       
   # Operations: Linear only
   def __add__ (self, other):
     # Summation var + var
     if isinstance (other, Variable):
-      # x1 + x1 = (2, x1)
-      if self == other:
+      # If the variables are the same
+      if self.same(other):
         return Expression([Term(2, self)])
 
-      # x1 + x2 = {(1, x1) + (1, x2)}
       return Expression([Term(1, self), Term(1, other)])
     
     # Summation var + expr
@@ -74,12 +88,12 @@ class Variable():
     else:
       return NotImplemented
 
-  # Negative representation definition
+  # Should I implement x * cte?
+  
   def __neg__ (self):
     return Expression([Term(-1, self)])
     
   def __sub__(self, other):
-    # Var - Var
     return self + (-other)
 
   def __rsub__(self, other):
@@ -92,41 +106,68 @@ class Variable():
       return Constraint(self + other, SENSE.LE, Term(0, None))
     else:
       return NotImplemented
-    
+
+  def __ge__ (self, other):
+    if isinstance (other, (int, float)):
+      return Constraint(Expression([Term(1, self)]), SENSE.GE, Term(other, None))
+    elif isinstance (other, Variable):
+      return Constraint(self + other, SENSE.GE, Term(0, None))
+    else:
+      return NotImplemented
+
+  def __eq__ (self, other):
+    if isinstance (other, (int, float)):
+      return Constraint(Expression([Term(1, self)]), SENSE.EQ, Term(other, None))
+    elif isinstance (other, Variable):
+      return Constraint(self + other, SENSE.EQ, Term(0, None))
+    else:
+      return NotImplemented
+
 
   def __repr__(self):
-    return self.name
+    return self.name if self.type == TYPE.DECISION else f"\"{self.name}\""
+
+  def same(self, other):
+    if isinstance (other, Variable):
+      return self.name == other.name and self.bounds == other.bounds and self.type == other.type
+    return False
 
   def set_value(self, value):
     self.value = value
 
-# A Pair Coeficient and Variable  
 class Term():
+  ''' * Terms with var = None are Constant '''
+
   def __init__ (self, coef, var):
     self.coef = coef
     self.var = var
 
-   # Use the name as hash
   def __hash__(self):
     return hash(self.var)
 
   # Two variables are equals if, and only if, it's has the same NAME
   def __eq__(self, other):
-    return isinstance(other, Variable) and self.var == other.var
+    return isinstance(other, Variable) and self.var.same(other.var)
 
   def __add__ (self, other):
     if isinstance (other, (int, float)):
       return Expression([self, Term(other, None)])
-    # Variable and Term
+    
     elif isinstance (other, Variable):
-      if self.var == other:
+      if self.var.same(other):
+        # Just incremet it coefficient
         return Term(self.coef + 1, other)
       else:
         return Expression([self, Term(1, other)])
 
     elif isinstance (other, Term):
-      # Term involving the same variable
-      if self.var == other.var:
+      if self.var == None and other.var == None:
+        return Term(self.coef + other.coef, None)
+
+      elif (self.var == None and not other.var == None) or (not self.var == None and other.var == None):
+        return Expression([other, self])
+
+      if self.var.same(other.var):
         return Term(self.coef + other.coef, self.var)
       else:
         return Expression([self, other])
@@ -140,7 +181,6 @@ class Term():
     return Term(-1 * self.coef, self.var)
 
   def __sub__(self, other):
-    # Var - Var
     return self + (-other)
 
   def __rsub__(self, other):
@@ -160,21 +200,15 @@ class Term():
 
     return f"{self.coef}*{self.var}"
 
-# Collection of variables and the resources (Ax = b)
 class Expression(): 
-  # expr: x1 + 2 * x2: [(1, x1), (2, x2)]
   def __init__ (self, terms):
-    # terms is a list of tuples mapping the coef and the variable
-    # self.terms = terms if terms is not None else []
-
-    # Crating the term as a set
     self.terms = terms if terms is not None else list()
 
   def __add__ (self, other):
     # Just "append" the variable in ther expression
     if isinstance(other, Variable):
       for i in range(len(self.terms)):
-        if other == self.terms[i].var:
+        if other.same(self.terms[i].var):
           self.terms[i] += Term(1, other)
           return Expression(self.terms)
       return Expression(self.terms + [Term(1, other)])
@@ -182,7 +216,7 @@ class Expression():
     if isinstance(other, Term):
       # Check if a term with the same variable already exists in the expression
       for i in range (len(self.terms)):
-        if other.var == self.terms[i].var:
+        if other.var.same(self.terms[i].var):
           self.terms[i] += other
           return Expression(self.terms)
       return Expression(self.terms + [other])
@@ -197,20 +231,16 @@ class Expression():
           var_table[term.var] = var_table[term.var] + term
         else:
           var_table[term.var] = term
-        # print (var_table)
-
+        
       return Expression(list(var_table.values()))
 
-    # Add the constant term
     elif isinstance(other, (int, float)):
-      # return Expression(self.terms, self.cte + other)
       return Expression(self.terms + [Term(other, None)])
 
   def __radd__(self, other):
     return self + other
 
   def __neg__(self):
-    # Inverse all of the coeficients
     return Expression([-term for term in self.terms])
 
   def __sub__(self, other):
@@ -224,32 +254,24 @@ class Expression():
 
   # Just linear operation: Scalar multiplication
   def __rmul__ (self, other):
-    # Multiplication cte * x1
     if isinstance (other, (int, float)):
       return Expression([other * term for term in self.terms])
     else:
       return NotImplemented
 
-  # Return the term associated to a varible or a index
   def __getitem__ (self, key):
     if isinstance (key, Variable):
       for term in self.terms:
-        if term.var == key:
+        if term.var.same(key):
           return term
       return None
     elif isinstance (key, int):
       if key < 0 or key >= len (self.terms):
         return None
       return self.terms[key]
-    elif isinstance (key, str):
-      for term in self.terms:
-        if term.var.name == key:
-          return term
-      return None
     else:
-      return NotImplemented
+      return None
 
-  # Constraint: Just in the standard form, for now
   def __le__(self, other):
     if isinstance (other, Expression):
       # # Operation
@@ -331,7 +353,6 @@ class Expression():
 
       return Constraint(ls, SENSE.EQ, - rs)
 
-    # Case: x1 + x2 <= -x1
     elif isinstance (other, Variable):
       ls = self - other
 
@@ -363,7 +384,6 @@ class Expression():
     return None
 
 class Constraint():
-  # expr (sense: <=) resource
   def __init__(self, expr, sense, resource, name=None):
     self.name = name
     self.expr = expr    # Expression
@@ -371,21 +391,11 @@ class Constraint():
     self.resource = resource # Value (constant) after the singal
 
   def __repr__(self):
-    if self.sense == SENSE.EQ:
-      return f"{self.expr} = {self.resource}"
-    elif self.sense == SENSE.LE:
-      return f"{self.expr} <= {self.resource}"
-    elif self.sense == SENSE.GE:
-      return f"{self.expr} >= {self.resource}"
+    return f"{self.expr} {repr(self.sense)} {self.resource}"
 
   # Negation of a constraint
   def __neg__(self):
-    if self.sense == SENSE.LE:
-      return Constraint(-1 * self.expr, SENSE.GE, -1 * self.resource)
-    elif self.sense == SENSE.GE:
-      return Constraint(-1 * self.expr, SENSE.LE, -1 * self.resource)
-    else:
-      return Constraint(-1 * self.expre, self.sense, -1 * self.resource)
+    return Constraint (-1 * self.expr, -self.sense, -1 * self.resource)
 
   # Create a copy of the constraint
   @classmethod
@@ -399,7 +409,10 @@ class Model ():
     self.constrs = {}   # Dictionary of Constraints
     self.objective = None
     self.status = STATUS.UNSOLVED
-    # Counters
+
+    # Map between a variable and a Expression (x in R => x+ - x-)
+    self.replaces = {}
+    
     self.var_count = 0
     self.constr_count = 0
 
@@ -409,16 +422,15 @@ class Model ():
       # Can be hacked!
       var.name = f"x{self.var_count}"
 
-    # Verify variables that already exists: TODO
+    # Verify variables that already exists
     if self.vars.get(var.name) == None:
       # Checking boundaries
-      # It has negative lower bound? x >= -cte
-      if var.bounds[0] < 0:
+      if var.bounds[0] > -float('inf') and not var.bounds[0] == 0:
         self.add_constr(Expression([Term(1, var)]) >= var.bounds[0])
         var.bounds = (-float('inf'), var.bounds[1])
-
-      # Negative upper bound x <= -cte
-      if var.bounds[1] < float('inf'):
+      
+      #if var.bounds[1] < float('inf'):
+      if var.bounds[1] < float('inf') and not var.bounds[1] == 0:
         # Add a constraing
         # Make it a free variable
         self.add_constr(Expression([Term(1, var)]) <= var.bounds[1])
@@ -460,11 +472,20 @@ class Model ():
           negative_var = Variable(name=f"{term.var.name}-", type=TYPE.PARTIAL_NEGATIVE)
 
           std_objective += term.coef * (positive_var - negative_var)
+
+          std_model.replaces[term.var] = (positive_var - negative_var)
+
+        elif term.var.bounds == (-float('inf'), 0):
+          print (f"Replacing {term.var} to it negative representation z")
+          z = Variable(name=f"-({term.var.name})", type=TYPE.REPLACE)
+          std_model.replaces[term.var] = z
+          # TODO
         else:
           std_objective += term
       
       std_model.set_objective(std_objective)
 
+    # Standardize the constraints
     for index, constr in enumerate(self.constrs.values()):
       # For each term of the expression of the constraint
       std_terms = Expression (None)
@@ -534,6 +555,7 @@ class Model ():
       print ("Ubounded")
       return 0, None
 
+
     fitness, solution = Simplex.phase2(std_model, bfs)
     summary = defaultdict(float)
 
@@ -574,14 +596,14 @@ class Tableau():
     for index, var in enumerate(model.vars.values()):
       # Objective Function
       for terms in model.objective.terms:
-        if terms.var == var:
+        if terms.var.same(var):
           self.mat[0, index] = terms.coef
 
       # print (self.constrs.values())
       # Constraint
       for row, constr in enumerate(model.constrs.values()):
         for term in constr.expr.terms:
-          if term.var == var:
+          if term.var.same(var):
             self.mat[row + 1, index] = term.coef
 
     for row, constr in enumerate(model.constrs.values()):
@@ -593,16 +615,15 @@ class Tableau():
 
   # Update the tableau given the variables in the base
   def update(self, base):
+    print (self)
     pivots = list()
     for row, var in enumerate(base):
       pivots.append ((row + 1, self.labels[var]))
 
-    # print (pivots)
     for pivot in pivots:
       col = pivot[1]
       pivot_col = self.mat[:, col]
-      
-      # Create the identity matrix
+
       Q = Mat.I(self.mat.m)
       for row, element in enumerate(pivot_col):
         if row == pivot[0] and not pivot_col[row] == 0:
@@ -610,5 +631,4 @@ class Tableau():
         else:
           Q[row, pivot[0]] = -float(pivot_col[row]/ self.mat[pivot])
       
-      # print (Q, end='\n' + (80 * '-') + '\n')
       self.mat = Q * self.mat

@@ -1,6 +1,4 @@
-from lpy.data import Mat
 from lpy.model import *
-from lpy.algorithms import Simplex
 
 model = Model()
 
@@ -49,19 +47,18 @@ model.add_constr(60 * aveia + 4.7 * leite + 26 * banana + 28 * arroz + 13.6 * fe
 model.add_constr(10 * aveia + 3.1 * leite + 0.1 * banana + 4.7 * whey + 0.2 * arroz + 0.5 * feijao + 2.5 * frango + 20.2 * queijo + 2 * pao_frances + 46.7 * pasta_amendoim + 10 * ovo >= lipidios)
 # model.add_constr(0.2 * arroz + 10 * ovo + 0.5 * feijao >= lipidios)
 
-model.add_constr(Expression([Term(1, arroz)]) >= 1)
-model.add_constr(Expression([Term(1, whey)]) <= 0.4)
-model.add_constr(Expression([Term(1, pasta_amendoim)]) <= 0.3)
-model.add_constr(Expression([Term(1, aveia)]) <= 1)
-model.add_constr(Expression([Term(1, leite)]) >= 3)
+model.add_constr(arroz >= 1)
+model.add_constr(whey <= 0.4)
+model.add_constr(pasta_amendoim <= 0.3)
+model.add_constr(aveia <= 1)
+model.add_constr(leite >= 3)
 
 # print (Simplex.solve(Tableau.model_to_tableau(model)))
 model.set_objective(aveia + leite + banana + whey + arroz + feijao + frango + ovo + pasta_amendoim + pao_frances + queijo)
 # model.set_objective(arroz + ovo)
 
-fitness, solution = model.optimize(minimize=True)
+fitness, sol = model.optimize(OBJECTIVE.MINIMIZE)
 
-if solution:
-  print (f"f* = {fitness}")
-  for var, value in solution.items():
-    print (f"{var} = {value}")
+print (repr(model.status))
+
+print ("f* =", fitness, ";", sol)

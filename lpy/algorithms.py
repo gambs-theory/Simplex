@@ -8,10 +8,14 @@ class STATUS():
 class Simplex():
   @staticmethod
   def phase1(model):
+    # Unconstrained problem is unbounded
+
     from .model import Variable, Expression, Model, Term, TYPE
 
-    print ("PHASE 1 " + 80 * "=")
-    print (model)
+    # print ("PHASE 1 " + 80 * "=")
+    # print (model.vars)
+    # print (model)
+    # print (80 * "=")
     
     # Associate the constraint to it artificial or slack variable
     association = dict()
@@ -42,7 +46,11 @@ class Simplex():
     # if len (summation.terms) == 0:
     if artificial_count == 0:
       # return 0, dict((slack, 0) for slack in model.get_slack())
-      return 0, association
+      base = list()
+      for term in association.values():
+        base.append(term.var)
+
+      return 0, base
     
     # Building the Artificial Linear Programming Problem
     else:
@@ -55,16 +63,16 @@ class Simplex():
           artificial.add_var(term.var)
 
       # The initial basic feasible solution to the artificial problem
-      bfs = list()
+      base = list()
       for index, constr in enumerate(model.constrs):
         cpy = constr.copy (constr)
         term = association[f"{index}"]
 
         if term.var.type == TYPE.ARTIFICIAL:
           cpy.expr += term
-          bfs.append(term.var)
+          base.append(term.var)
         else:
-          bfs.append(term.var)
+          base.append(term.var)
 
         artificial.add_constr(cpy)
 
@@ -74,16 +82,15 @@ class Simplex():
           artificial_objective += term
 
       artificial.set_objective(artificial_objective)
-
-      return Simplex.phase2 (artificial, bfs)
+      return Simplex.phase2 (artificial, base)
 
   @staticmethod
-  def phase2(model, bfs):
+  def phase2(model, base):
     print ("PHASE 2 " + 80 * "=")
     from .model import Tableau, TYPE
     tableau = Tableau (model)
-    print (model)
-    tableau.update(bfs)
+    tableau.pivot_base(base)
+    print (tableau)
 
     while True:
     #for i in range(2):
@@ -97,22 +104,23 @@ class Simplex():
       if round(best, 6) >= 0:
         fitness = tableau.mat[0, tableau.mat.n - 1]
 
-        for var, value in zip (bfs, tableau.mat[1:, tableau.mat.n - 1]):
+        for var, value in zip (base, tableau.mat[1:, tableau.mat.n - 1]):
           var.set_value (value)
 
-        return fitness, bfs
+        return fitness, base
 
       in_var = list(tableau.labels)[index]
 
       print (f"{in_var} enters the base; ", end='')
 
-      xB = tableau.mat[:, tableau.mat.n - 1]
-      d = tableau.mat[:, tableau.labels[in_var]]
+      xB = tableau.mat[1:, tableau.mat.n - 1]
+      d = tableau.mat[1:, index]
 
+      print (len(xB))
       min_step = float('inf')
       pivot = -1
 
-      for i in range(1, len(xB)):
+      for i in range(0, len(xB)):
         if d[i] <= 0:
           continue 
         
@@ -125,19 +133,16 @@ class Simplex():
           pivot = i
 
         # Priorize artificial variable
-        elif theta == min_step and bfs[i - 1].type == TYPE.ARTIFICIAL:
+        elif theta == min_step and base[i].type == TYPE.ARTIFICIAL:
           pivot = i
 
       # Pivoting
       if not pivot == -1:
-        out_var = bfs[pivot - 1]
+        out_var = base[pivot]
         print (f"{out_var} leaves the base!", end='; ')
-        bfs[pivot - 1] = in_var
-        print (f"New base: {bfs}")
-        tableau.update(bfs)
-        print (tableau)
-
-      # Repeat the process
-      # print (tableau)    
+        base[pivot] = in_var
+        print (f"New base: {base}")
+        tableau.pivot_base(base)
+        print ("\n", tableau)
       else:
         return 0, None

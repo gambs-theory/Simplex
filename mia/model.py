@@ -136,7 +136,6 @@ class Model ():
     std_model = Model.standardize(self)
 
     if self.objective == None:
-      #return Simplex.phase1(std_model)
       return Simplex.phase1(Model.copy(std_model))
 
     if objective == OBJECTIVE.MAXIMIZE:
@@ -145,40 +144,55 @@ class Model ():
     # Phase 1: Find a feasible basic solution
     # f, base = Simplex.phase1(std_model)
     print ("Phase 1: ==========================================")
-    f, base = Simplex.phase1(Model.copy(std_model))
+    tableau, status = Simplex.phase1(Model.copy(std_model))
     print ("End Phase 1: ======================================")
-    print (base)
-    print (f)
+    
+    print (tableau)
 
+    f = tableau.mat[0, tableau.mat.m - 1]
+    
     if not round(f, 6) == 0:
       self.status = STATUS.INFEASIBLE
       return 0, None
 
-    elif base == None:
+    elif not tableau.base:
       self.status = STATUS.UNBOUNDED
       return 0, None
 
+    t = Tableau(std_model, tableau.base)
+    # Update the tableu of the artificial problem into the standard problem
+    print ("STANDARD MODEL TABLEAU")
+    print (t)
+    print ("UPDATING TO ARTIFICIAL PROBLEM")
+    t.update(tableau)
+    print (t)
+
     # Solution = List of variables
     print ("Phase 2: ==========================================")
-    f, base = Simplex.phase2(std_model, base)
+    # f, base = Simplex.phase2(std_model, base)
+    tableau, status = Simplex.phase2(t)
     print ("End Phase 2: ======================================")
-    
-    if base == None:
+
+    print (f"Algorithm STATUS: {status}")
+
+    if status == STATUS.UNBOUNDED:
       self.status = STATUS.UNBOUNDED
       return float('inf'), None
 
     self.status = STATUS.OPTIMAL
 
-    assignment = dict([(var, var.value) for var in base])
+    assignment = dict([(var, var.value) for var in tableau.base])
     solution = dict()
 
     # For each variable in the model
     for var in self.vars.values():
       if std_model.replaces.get(var):
         solution[var] = Expression.apply(std_model.replaces[var], assignment)
+      elif assignment.get(var):
+        solution[var] = assignment[var]
       else:
         solution[var] = 0
-
+      
     return Expression.apply(self.objective, solution), solution
 
   def __repr__(self):
@@ -206,7 +220,7 @@ class Model ():
 ###################################### TABLEAU ####################################
 class Tableau():
   # Convert the model to the tableau representation
-  def __init__(self, model):
+  def __init__(self, model, base=None):
     ''' Enter a model to work with tableau '''
 
     if not isinstance (model, Model):
@@ -217,6 +231,7 @@ class Tableau():
     # self.labels = list(model.vars.values())
     self.labels = dict((key, index) for index, key in enumerate(model.vars.values()))
     self.mat = Mat.zeros((model.constr_count + 1, model.var_count + 1))
+    self.base = base if base else list()
 
     for index, var in enumerate(model.vars.values()):
       # Objective Function
@@ -232,10 +247,6 @@ class Tableau():
 
     for row, constr in enumerate(model.constrs):
       self.mat[row + 1, model.var_count] = constr.resource.coef
-
-  def __repr__ (self):
-    repr = f"{self.labels}\n" + f"{self.mat}\n"
-    return repr
 
   def pivot_base(self, base):
     pivots = list()
@@ -255,12 +266,23 @@ class Tableau():
           Q[row, pivot[0]] = -float(pivot_col[row]/ self.mat[pivot])
       
       self.mat = Q * self.mat
+    self.base = base
     
   # Update the tableau given the variables in the base
   def update(self, other):
-    if isinstance (other, Tableau):
+    if isinstance(other, Tableau):
       for label, col in self.labels.items():
-        if other.labels.get(label):
-          # Copy the other column to the self
-          for i in range (self.mat.m):
-            self.mat[i, col] = other.mar[i, other.labels[label]]
+        if label in other.labels:
+          other_col = other.labels[label]
+          for i in range(1, self.mat.m):
+            self.mat[i, col] = other.mat[i, other_col]
+
+      # Copy the last column (RHS or z-values)
+      for i in range(self.mat.m):
+        self.mat[i, -1] = other.mat[i, -1]
+
+
+  def __repr__ (self):
+    base = f"{[var for var in self.base]};\n"
+    repr = f"{self.labels}\n" + f"{self.mat}\n"
+    return base + repr

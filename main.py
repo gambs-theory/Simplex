@@ -1,4 +1,4 @@
-from lpy.model import *
+from mia.model import *
 
 model = Model()
 

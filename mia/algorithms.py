@@ -1,22 +1,18 @@
 from .data import Mat
 
-class STATUS():
-  OPTIMAL = 0
-  INFEASIBLE = 1
-  UNBOUNDED = 2
-
 class Simplex():
   @staticmethod
+  # Argument: 
+  #   model
+  # Return:
+  # - The phase2 return
+  
   def phase1(model):
     # Unconstrained problem is unbounded
+    # TODO
 
-    from .model import Variable, Expression, Model, Term, TYPE
+    from .model import Variable, Expression, Model, Term, TYPE, STATUS,  Tableau
 
-    # print ("PHASE 1 " + 80 * "=")
-    # print (model.vars)
-    # print (model)
-    # print (80 * "=")
-    
     # Associate the constraint to it artificial or slack variable
     association = dict()
     artificial_count = 0
@@ -50,7 +46,7 @@ class Simplex():
       for term in association.values():
         base.append(term.var)
 
-      return 0, base
+      return Tableau(model, base), STATUS.UNSOLVED
     
     # Building the Artificial Linear Programming Problem
     else:
@@ -82,41 +78,48 @@ class Simplex():
           artificial_objective += term
 
       artificial.set_objective(artificial_objective)
-      return Simplex.phase2 (artificial, base)
+      
+      # Create the tableau of the artificial problem
+      t = Tableau(artificial, base)
+      print (t)
+      # return Simplex.phase2 (artificial, base)
+      return Simplex.phase2 (t)
 
+
+  # Argument:
+  #   t: Tableau of the LPP
+  # Return:
+  #   Resulting tableau
   @staticmethod
-  def phase2(model, base):
-    print ("PHASE 2 " + 80 * "=")
-    from .model import Tableau, TYPE
-    tableau = Tableau (model)
-    tableau.pivot_base(base)
-    print (tableau)
+  def phase2(t):
+    from .model import Tableau, TYPE, STATUS
+    t.pivot_base(t.base)
+    print (t)
 
     while True:
     #for i in range(2):
       # Default: Minimization Problem
       # Find the most negative reduced cost and take the value and it variable
-      best, index = min(zip(tableau.mat[0, :], range (len(tableau.mat[0]) - 1)))
+      best, index = min(zip(t.mat[0, :], range (len(t.mat[0]) - 1)))
 
       # Stop criteria
 
       # Avoid float point imprecision
       if round(best, 6) >= 0:
-        fitness = tableau.mat[0, tableau.mat.n - 1]
+        f = t.mat[0, t.mat.n - 1]
 
-        for var, value in zip (base, tableau.mat[1:, tableau.mat.n - 1]):
+        for var, value in zip (t.base, t.mat[1:, t.mat.n - 1]):
           var.set_value (value)
 
-        return fitness, base
+        return t, STATUS.OPTIMAL
 
-      in_var = list(tableau.labels)[index]
+      in_var = list(t.labels)[index]
 
       print (f"{in_var} enters the base; ", end='')
 
-      xB = tableau.mat[1:, tableau.mat.n - 1]
-      d = tableau.mat[1:, index]
+      xB = t.mat[1:, t.mat.n - 1]
+      d  = t.mat[1:, index]
 
-      print (len(xB))
       min_step = float('inf')
       pivot = -1
 
@@ -133,16 +136,16 @@ class Simplex():
           pivot = i
 
         # Priorize artificial variable
-        elif theta == min_step and base[i].type == TYPE.ARTIFICIAL:
+        elif theta == min_step and t.base[i].type == TYPE.ARTIFICIAL:
           pivot = i
 
       # Pivoting
       if not pivot == -1:
-        out_var = base[pivot]
+        out_var = t.base[pivot]
         print (f"{out_var} leaves the base!", end='; ')
-        base[pivot] = in_var
-        print (f"New base: {base}")
-        tableau.pivot_base(base)
-        print ("\n", tableau)
+        t.base[pivot] = in_var
+        print (f"New base: {t.base}")
+        t.pivot_base(t.base)
+        print ("\n", t)
       else:
-        return 0, None
+        return t, STATUS.UNBOUNDED

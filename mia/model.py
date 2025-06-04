@@ -149,7 +149,7 @@ class Model ():
     
     print (tableau)
 
-    f = tableau.mat[0, tableau.mat.m - 1]
+    f = tableau.mat[0, tableau.mat.n - 1]
     
     if not round(f, 6) == 0:
       self.status = STATUS.INFEASIBLE

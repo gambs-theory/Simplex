@@ -1,12 +1,11 @@
 from .data import Mat
 
 class Simplex():
-  @staticmethod
   # Argument: 
   #   model
   # Return:
   # - The phase2 return
-  
+  @staticmethod
   def phase1(model):
     # Unconstrained problem is unbounded
     # TODO
@@ -20,24 +19,17 @@ class Simplex():
     # Checking the relation between the slack and resource vector
     for index, constr in enumerate(model.constrs):
       slack = constr.expr.get_slack()
-      if slack == None:
-        # Equality constraint - not result of the standard form
-        # Add artificial variable if x = 0 doesn't satisfy this constraint
-        if not constr.resource.coef == 0:
-          association[f"{index}"] = Term(1, Variable(name=f"a{index}", type=TYPE.ARTIFICIAL))
-          artificial_count += 1
+      if slack == None: # Equality constraint (without slack)
+        association[f"{index}"] = Term(1, Variable(name=f"a{index}", type=TYPE.ARTIFICIAL))
+        artificial_count += 1
       
-      # Verify non-negativity satisfation
+      # Verify non-negativity satisfation (slack variable)
+      elif slack.coef < 0:
+        association[f"{index}"] = Term(1, Variable(name=f"a{index}", type=TYPE.ARTIFICIAL))
+        artificial_count += 1
       else:
-        if not constr.resource.coef == 0: 
-          # if slack.coef/ constr.resource.coef < 0:
-          if slack.coef < 0:
-            association[f"{index}"] = Term(1, Variable(name=f"a{index}", type=TYPE.ARTIFICIAL))
-            artificial_count += 1
-          else:
-            association[f"{index}"] = slack
-        else:
-          association[f"{index}"] = slack
+        association[f"{index}"] = slack
+       
 
     # if len (summation.terms) == 0:
     if artificial_count == 0:
@@ -97,14 +89,8 @@ class Simplex():
     print (t)
 
     while True:
-    #for i in range(2):
-      # Default: Minimization Problem
-      # Find the most negative reduced cost and take the value and it variable
       best, index = min(zip(t.mat[0, :], range (len(t.mat[0]) - 1)))
 
-      # Stop criteria
-
-      # Avoid float point imprecision
       if round(best, 6) >= 0:
         f = t.mat[0, t.mat.n - 1]
 

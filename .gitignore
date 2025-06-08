@@ -1,5 +1,6 @@
 # Ignoring the caches
 lpy/__pycache__
 __pycache__
+.ipynb_checkpoints
 val.py
 files

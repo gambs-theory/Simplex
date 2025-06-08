@@ -37,10 +37,8 @@ class Variable():
   _counter = 0
 
   def __init__ (self, bounds=(0, float('inf')), name=None, type=TYPE.DECISION, value=0):
-    self.name = name if name is not None else f"x{Variable._counter}"
+    self.name = name if name is not None else f"x{Variable._counter + 1}"
     self.bounds = bounds
-    self.lb = bounds[0]
-    self.ub = bounds[1]
     self.type = type
     self.value = value
     Variable._counter += 1
@@ -92,7 +90,7 @@ class Variable():
     if isinstance (other, (int, float)):
       return Constraint(Expression([Term(1, self)]), SENSE.LE, Term(other, None))
     elif isinstance (other, Variable):
-      return Constraint(self + other, SENSE.LE, Term(0, None))
+      return Constraint(self - other, SENSE.LE, Term(0, None))
     else:
       return NotImplemented
 
@@ -100,7 +98,7 @@ class Variable():
     if isinstance (other, (int, float)):
       return Constraint(Expression([Term(1, self)]), SENSE.GE, Term(other, None))
     elif isinstance (other, Variable):
-      return Constraint(self + other, SENSE.GE, Term(0, None))
+      return Constraint(self - other, SENSE.GE, Term(0, None))
     else:
       return NotImplemented
 
@@ -108,7 +106,7 @@ class Variable():
     if isinstance (other, (int, float)):
       return Constraint(Expression([Term(1, self)]), SENSE.EQ, Term(other, None))
     elif isinstance (other, Variable):
-      return Constraint(self + other, SENSE.EQ, Term(0, None))
+      return Constraint(self - other, SENSE.EQ, Term(0, None))
     else:
       return NotImplemented
 

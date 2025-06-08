@@ -64,7 +64,7 @@ class Simplex():
 
         artificial.add_constr(cpy)
 
-      artificial_objective = Expression(None)
+      artificial_objective = Expression()
       for term in association.values():
         if term.var.type == TYPE.ARTIFICIAL:
           artificial_objective += term
@@ -73,7 +73,7 @@ class Simplex():
       
       # Create the tableau of the artificial problem
       t = Tableau(artificial, base)
-      print (t)
+      # print (t)
       # return Simplex.phase2 (artificial, base)
       return Simplex.phase2 (t)
 
@@ -86,7 +86,7 @@ class Simplex():
   def phase2(t):
     from .model import Tableau, TYPE, STATUS
     t.pivot_base(t.base)
-    print (t)
+    #print (t)
 
     while True:
       best, index = min(zip(t.mat[0, :], range (len(t.mat[0]) - 1)))
@@ -101,7 +101,7 @@ class Simplex():
 
       in_var = list(t.labels)[index]
 
-      print (f"{in_var} enters the base; ", end='')
+      #print (f"{in_var} enters the base; ", end='')
 
       xB = t.mat[1:, t.mat.n - 1]
       d  = t.mat[1:, index]
@@ -128,10 +128,10 @@ class Simplex():
       # Pivoting
       if not pivot == -1:
         out_var = t.base[pivot]
-        print (f"{out_var} leaves the base!", end='; ')
+        #print (f"{out_var} leaves the base!", end='; ')
         t.base[pivot] = in_var
-        print (f"New base: {t.base}")
+        #print (f"New base: {t.base}")
         t.pivot_base(t.base)
-        print ("\n", t)
+        #print ("\n", t)
       else:
         return t, STATUS.UNBOUNDED

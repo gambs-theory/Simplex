@@ -18,7 +18,7 @@ class STATUS(Enum):
     elif self is STATUS.INFEASIBLE:
       return "\r\n* [Mia]: Infeasible problem."
     elif self is STATUS.UNBOUNDED:
-      return "\r\n* [Mia]: Unbouded problem."
+      return "\r\n* [Mia]: Unbounded problem."
 
 class OBJECTIVE:
   MINIMIZE = 0
@@ -52,6 +52,10 @@ class Model ():
   def set_objective(self, objective):
     if isinstance (objective, Expression):
       self.objective = objective
+    elif isinstance (objective, Term):
+      self.objective = Expression([objective])
+    elif isinstance (objective, Variable):
+      self.objective = Expression([Term(1, objective)])
     else:
       raise Exception("Invalid objective function!")
 
@@ -88,8 +92,6 @@ class Model ():
       else:
         std_model.add_var(var)
 
-    # Apply the replaces to the variables in all of the context
-
     if not model.objective == None:
       std_objective = Expression.copy(model.objective)
       replaced = Expression.replace(std_objective, std_model.replaces)
@@ -100,7 +102,6 @@ class Model ():
 
     # Standardize the constraints
     for constr in std_model.constrs:
-      # std_model.add_constr(Constraint(std_terms, constr.sense, constr.resource, name=constr.name))
       constr.expr = Expression.replace(constr.expr, std_model.replaces)
       if constr.resource.coef < 0:
         constr.resource = -constr.resource
@@ -143,11 +144,11 @@ class Model ():
     
     # Phase 1: Find a feasible basic solution
     # f, base = Simplex.phase1(std_model)
-    print ("Phase 1: ==========================================")
+    #print ("Phase 1: ==========================================")
     tableau, status = Simplex.phase1(Model.copy(std_model))
-    print ("End Phase 1: ======================================")
+    #print ("End Phase 1: ======================================")
     
-    print (tableau)
+    #print (tableau)
 
     f = tableau.mat[0, tableau.mat.n - 1]
     
@@ -161,19 +162,17 @@ class Model ():
 
     t = Tableau(std_model, tableau.base)
     # Update the tableu of the artificial problem into the standard problem
-    print ("STANDARD MODEL TABLEAU")
-    print (t)
-    print ("UPDATING TO ARTIFICIAL PROBLEM")
+    #print ("STANDARD MODEL TABLEAU")
+    #print (t)
+    #print ("UPDATING TO ARTIFICIAL PROBLEM")
     t.update(tableau)
-    print (t)
+    #print (t)
 
     # Solution = List of variables
-    print ("Phase 2: ==========================================")
+    #print ("Phase 2: ==========================================")
     # f, base = Simplex.phase2(std_model, base)
     tableau, status = Simplex.phase2(t)
-    print ("End Phase 2: ======================================")
-
-    print (f"Algorithm STATUS: {status}")
+    #print ("End Phase 2: ======================================")
 
     if status == STATUS.UNBOUNDED:
       self.status = STATUS.UNBOUNDED
@@ -280,7 +279,6 @@ class Tableau():
       # Copy the last column (RHS or z-values)
       for i in range(self.mat.m):
         self.mat[i, -1] = other.mat[i, -1]
-
 
   def __repr__ (self):
     base = f"{[var for var in self.base]};\n"
